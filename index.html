@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NOVA — избранное</title>
+<title>NOVA — мои проекты</title>
 <style>
 * { box-sizing: border-box; }
 body { margin: 0; background: #171719; color: #f5f5f7; font: 17px/1.6 system-ui, sans-serif; }
@@ -28,13 +28,41 @@ button { min-height: 44px; padding: 10px 16px; border: 1px solid #62626d; border
 #empty { padding: 28px; border: 1px dashed #62626d; border-radius: 18px; text-align: center; }
 #storage-note { color: #ffd98a; }
 @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.editor { background: #26262b; border: 1px solid #62626d; border-radius: 18px; padding: 20px; margin: 24px 0; }
+summary { cursor: pointer; min-height: 44px; font-weight: 700; }
+form { display: grid; gap: 12px; margin-top: 16px; }
+textarea, select { width: 100%; padding: 12px; border: 1px solid #777; border-radius: 12px; background: #171719; color: white; font: inherit; }
+textarea { min-height: 100px; resize: vertical; }
+.hint { font-size: 14px; color: #b9b9c4; }
+.submit { background: #a6c8ff; color: #111; font-weight: 700; }
+#error { color: #ffd98a; margin: 0; }
+#message { color: #b9eac5; }
 </style>
 </head>
 <body>
 <main>
   <p class="brand">NOVA</p>
-  <h1>Каталог проектов</h1>
-  <p class="intro">Сохраняй интересные учебные проекты в избранное.</p>
+  <h1>Мои проекты</h1>
+  <p class="intro">Создавай карточки, находи проекты и сохраняй избранное.</p>
+  <details class="editor">
+    <summary>＋ Добавить проект</summary>
+    <p class="hint">Новые карточки сохраняются только в этом браузере. Другие посетители их не увидят.</p>
+    <form id="project-form">
+      <label for="project-title">Название — до 60 символов</label>
+      <input id="project-title" required maxlength="60" placeholder="Например: Мой блог" aria-describedby="error">
+      <label for="project-description">Описание — до 200 символов</label>
+      <textarea id="project-description" required maxlength="200" placeholder="Что делает твой проект?" aria-describedby="error"></textarea>
+      <label for="project-category">Категория</label>
+      <select id="project-category">
+        <option value="site">Сайт</option>
+        <option value="app">Приложение</option>
+      </select>
+      <p id="error" role="alert" hidden></p>
+      <button type="submit" class="submit">Добавить карточку</button>
+    </form>
+  </details>
+  <p id="message" role="status" aria-live="polite"></p>
   <label for="search">Поиск проекта</label>
   <input id="search" type="search" placeholder="Например: чат" autocomplete="off">
   <div class="filters" role="group" aria-label="Фильтр проектов">
@@ -45,119 +73,163 @@ button { min-height: 44px; padding: 10px 16px; border: 1px solid #62626d; border
   </div>
   <p id="count" role="status" aria-live="polite" aria-atomic="true"></p>
   <p id="storage-note" role="status" hidden></p>
-  <section class="grid" aria-label="Проекты">
-    <article class="card" data-id="nova" data-category="site">
-      <span class="tag">Сайт</span><h2>NOVA</h2>
-      <p>Минималистичный сайт для презентации продукта.</p>
-    </article>
-    <article class="card" data-id="chat" data-category="app">
-      <span class="tag">Приложение</span><h2>AI Chat</h2>
-      <p>Учебный чат с историей сообщений и удобным интерфейсом.</p>
-    </article>
-    <article class="card" data-id="calculator" data-category="app">
-      <span class="tag">Приложение</span><h2>Калькулятор</h2>
-      <p>Инструмент для расчёта расходов и личного бюджета.</p>
-    </article>
-    <article class="card" data-id="weather" data-category="app">
-      <span class="tag">Приложение</span><h2>Погода</h2>
-      <p>Приложение с прогнозом погоды для выбранного города.</p>
-    </article>
-  </section>
+  <section class="grid" aria-label="Проекты"></section>
   <p id="empty" hidden></p>
 </main>
 <script>
-const search = document.querySelector("#search");
-const filters = Array.from(document.querySelectorAll("[data-filter]"));
-const cards = Array.from(document.querySelectorAll(".card"));
-const count = document.querySelector("#count");
-const empty = document.querySelector("#empty");
-const note = document.querySelector("#storage-note");
+const defaults = [
+  { id: 'nova', title: 'NOVA', description: 'Минималистичный сайт для презентации продукта.', category: 'site' },
+  { id: 'chat', title: 'AI Chat', description: 'Учебный чат с историей сообщений и удобным интерфейсом.', category: 'app' },
+  { id: 'calculator', title: 'Калькулятор', description: 'Инструмент для расчёта расходов и личного бюджета.', category: 'app' },
+  { id: 'weather', title: 'Погода', description: 'Приложение с прогнозом погоды для выбранного города.', category: 'app' }
+];
+const search = document.querySelector('#search');
+const filters = Array.from(document.querySelectorAll('[data-filter]'));
+const grid = document.querySelector('.grid');
+const count = document.querySelector('#count');
+const empty = document.querySelector('#empty');
+const note = document.querySelector('#storage-note');
+const form = document.querySelector('#project-form');
+const titleInput = document.querySelector('#project-title');
+const descriptionInput = document.querySelector('#project-description');
+const categoryInput = document.querySelector('#project-category');
+const error = document.querySelector('#error');
+const message = document.querySelector('#message');
 const favoritesFilter = document.querySelector('[data-filter="favorites"]');
-const storageKey = "nova-favorites-v1";
-const validIds = new Set(cards.map(card => card.dataset.id));
-let favorites = new Set();
-let activeFilter = "all";
+const projectsKey = 'nova-projects-v1';
+const favoritesKey = 'nova-favorites-v1';
+let activeFilter = 'all';
+let cards = [];
+const normalize = value => value.trim().replace(/\s+/g, ' ');
 
-function showStorageNote() {
-  note.textContent = "Не удалось использовать сохранение в браузере. Избранное работает в этой вкладке, но может не сохраниться после перезагрузки.";
+function storageWarning() {
+  note.textContent = 'Есть проблема с сохранением в браузере. Последние изменения могут не сохраниться после перезагрузки.';
   note.hidden = false;
 }
-
-try {
-  const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
-  if (!Array.isArray(saved)) throw new Error("Invalid saved data");
-  favorites = new Set(saved.filter(id => validIds.has(id)));
-} catch {
-  showStorageNote();
-}
-
-function saveFavorites() {
+function loadArray(key) {
   try {
-    localStorage.setItem(storageKey, JSON.stringify([...favorites]));
-    note.hidden = true;
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(value)) throw new Error('Invalid data');
+    return value;
   } catch {
-    showStorageNote();
+    storageWarning();
+    return [];
   }
 }
-
-cards.forEach(card => {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "favorite";
-  button.addEventListener("click", () => {
-    const id = card.dataset.id;
-    if (favorites.has(id)) favorites.delete(id);
-    else favorites.add(id);
-    saveFavorites();
-    updateCatalog();
-    if (card.hidden) favoritesFilter.focus();
-  });
-  card.append(button);
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    storageWarning();
+    return false;
+  }
+}
+const knownIds = new Set(defaults.map(project => project.id));
+let custom = loadArray(projectsKey).filter(project => {
+  const valid = project && typeof project.id === 'string' &&
+    project.id.startsWith('user-') && !knownIds.has(project.id) &&
+    typeof project.title === 'string' && normalize(project.title).length > 0 && project.title.length <= 60 &&
+    typeof project.description === 'string' && normalize(project.description).length > 0 && project.description.length <= 200 &&
+    ['site', 'app'].includes(project.category);
+  if (valid) knownIds.add(project.id);
+  return valid;
 });
+let projects = [...defaults, ...custom];
+let favorites = new Set(loadArray(favoritesKey).filter(id => knownIds.has(id)));
 
-function updateCatalog() {
-  const query = search.value.trim().toLowerCase();
-  let visibleCount = 0;
-
-  cards.forEach(card => {
-    const title = card.querySelector("h2").textContent;
-    const description = card.querySelector("p").textContent;
-    const text = (title + " " + description).toLowerCase();
-    const isFavorite = favorites.has(card.dataset.id);
-    const matchesFilter =
-      activeFilter === "all" ||
-      (activeFilter === "favorites" && isFavorite) ||
-      card.dataset.category === activeFilter;
-
-    card.hidden = !(text.includes(query) && matchesFilter);
-    if (!card.hidden) visibleCount += 1;
-
-    const button = card.querySelector(".favorite");
-    button.textContent = isFavorite ? "★ В избранном" : "☆ В избранное";
-    button.setAttribute("aria-pressed", String(isFavorite));
-    button.setAttribute("aria-label",
-      (isFavorite ? "Убрать из избранного: " : "Добавить в избранное: ") + title);
-  });
-
-  count.textContent = "Найдено: " + visibleCount;
-  favoritesFilter.textContent = "★ Избранное (" + favorites.size + ")";
-  empty.hidden = visibleCount !== 0;
-  empty.textContent = activeFilter === "favorites" && favorites.size === 0
-    ? "В избранном пока пусто. Выбери «Все» и нажми ☆ на карточке."
-    : "Ничего не найдено. Измени запрос или фильтр.";
-
-  filters.forEach(button => {
-    button.setAttribute("aria-pressed", String(button.dataset.filter === activeFilter));
+function makeElement(tag, text, className) {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  if (className) element.className = className;
+  return element;
+}
+function renderCards() {
+  grid.replaceChildren();
+  cards = projects.map(project => {
+    const card = document.createElement('article');
+    card.className = 'card';
+    const tag = makeElement('span', project.category === 'site' ? 'Сайт' : 'Приложение', 'tag');
+    const heading = makeElement('h2', project.title);
+    const description = makeElement('p', project.description);
+    const button = makeElement('button', '', 'favorite');
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      if (favorites.has(project.id)) favorites.delete(project.id);
+      else favorites.add(project.id);
+      save(favoritesKey, [...favorites]);
+      updateCatalog();
+      if (card.hidden) favoritesFilter.focus();
+    });
+    card.append(tag, heading, description, button);
+    grid.append(card);
+    return { project, card, button };
   });
 }
-
-search.addEventListener("input", updateCatalog);
-filters.forEach(button => {
-  button.addEventListener("click", () => {
-    activeFilter = button.dataset.filter;
-    updateCatalog();
+function updateCatalog() {
+  const query = normalize(search.value).toLowerCase();
+  let visibleCount = 0;
+  cards.forEach(({ project, card, button }) => {
+    const isFavorite = favorites.has(project.id);
+    const text = (project.title + ' ' + project.description).toLowerCase();
+    const matchesFilter = activeFilter === 'all' ||
+      (activeFilter === 'favorites' && isFavorite) || project.category === activeFilter;
+    card.hidden = !(text.includes(query) && matchesFilter);
+    if (!card.hidden) visibleCount += 1;
+    button.textContent = isFavorite ? '★ В избранном' : '☆ В избранное';
+    button.setAttribute('aria-pressed', String(isFavorite));
+    button.setAttribute('aria-label', (isFavorite ? 'Убрать из избранного: ' : 'Добавить в избранное: ') + project.title);
   });
+  count.textContent = 'Найдено: ' + visibleCount;
+  favoritesFilter.textContent = '★ Избранное (' + favorites.size + ')';
+  empty.hidden = visibleCount !== 0;
+  empty.textContent = activeFilter === 'favorites' && favorites.size === 0
+    ? 'В избранном пока пусто. Выбери «Все» и нажми ☆ на карточке.'
+    : 'Ничего не найдено. Измени запрос или фильтр.';
+  filters.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.filter === activeFilter)));
+}
+function showError(text, field) {
+  error.textContent = text;
+  error.hidden = false;
+  field.setAttribute('aria-invalid', 'true');
+  field.focus();
+}
+form.addEventListener('input', () => {
+  error.hidden = true;
+  message.textContent = '';
+  [titleInput, descriptionInput, categoryInput].forEach(field => field.removeAttribute('aria-invalid'));
 });
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  error.hidden = true;
+  const title = normalize(titleInput.value);
+  const description = normalize(descriptionInput.value);
+  const category = categoryInput.value;
+  if (!title || title.length > 60) return showError('Введи название от 1 до 60 символов. Одних пробелов недостаточно.', titleInput);
+  if (!description || description.length > 200) return showError('Введи описание от 1 до 200 символов.', descriptionInput);
+  if (!['site', 'app'].includes(category)) return showError('Выбери категорию.', categoryInput);
+  if (projects.some(project => normalize(project.title).toLowerCase() === title.toLowerCase())) {
+    return showError('Проект с таким названием уже существует. Выбери другое название.', titleInput);
+  }
+  const project = { id: 'user-' + crypto.randomUUID(), title, description, category };
+  custom.push(project);
+  projects.push(project);
+  const persisted = save(projectsKey, custom);
+  search.value = '';
+  activeFilter = 'all';
+  form.reset();
+  renderCards();
+  updateCatalog();
+  message.textContent = persisted
+    ? 'Проект «' + title + '» добавлен и сохранён в этом браузере.'
+    : 'Проект добавлен в эту вкладку, но сохранить его после перезагрузки не удалось.';
+});
+search.addEventListener('input', updateCatalog);
+filters.forEach(button => button.addEventListener('click', () => {
+  activeFilter = button.dataset.filter;
+  updateCatalog();
+}));
+renderCards();
 updateCatalog();
 </script>
 </body>
